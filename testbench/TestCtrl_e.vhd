@@ -65,9 +65,13 @@ entity TestCtrl is
   
   -- Derive AXI interface properties from the ManagerRec
   constant ADDR_WIDTH : integer := ManagerRec.Address'length ; 
+  constant ADDR_ZERO  : std_logic_vector(ADDR_WIDTH-1 downto 0) := (others => '0') ;
   constant DATA_WIDTH : integer := ManagerRec.DataToModel'length ;  
+  constant DATA_ZERO  : std_logic_vector(DATA_WIDTH-1 downto 0) := (others => '0') ;
   constant DATA_BYTE_WIDTH : integer := DATA_WIDTH / 8 ;
   constant BYTE_ADDR_WIDTH : integer := integer(ceil(log2(real(DATA_BYTE_WIDTH)))) ;
+  constant WORD_ADDR_INCREMENT : integer := 2 ** BYTE_ADDR_WIDTH ;
+
     
   -- Simplifying access to Burst FIFOs using aliases
   alias WriteBurstFifo : ScoreboardIdType is ManagerRec.WriteBurstFifo ;
