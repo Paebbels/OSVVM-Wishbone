@@ -40,5 +40,5 @@
 library osvvm_wishbone
 
 analyze TestCtrl_e.vhd
-analyze TbRegister.vhd
+analyze TestHarness.vhd
 

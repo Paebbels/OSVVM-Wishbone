@@ -7,7 +7,7 @@
 #
 #
 #  Description:
-#        Script to run one Axi Stream test  
+#        Script to Wishbone test suite 
 #
 #  Developed for:
 #        SynthWorks Design Inc.
@@ -44,4 +44,4 @@
 ##
 ##
 
-RunTest  TbRegister_BasicReadWrite.vhd
+RunTest  Tb_BasicReadWrite.vhd
