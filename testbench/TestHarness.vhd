@@ -1,6 +1,6 @@
 --
---  File Name:         TbRegister.vhd
---  Design Unit Name:  TbRegister
+--  File Name:         TestHarness.vhd
+--  Design Unit Name:  TestHarness
 --  Revision:          OSVVM MODELS STANDARD VERSION
 --
 --  Maintainer:        Jim Lewis      email:  jim@synthworks.com
@@ -9,7 +9,7 @@
 --
 --
 --  Description:
---      Simple AXI Lite Manager Model
+--      Test harness for Wishbone tests
 --
 --
 --  Developed by:
@@ -50,9 +50,9 @@ library osvvm ;
 library OSVVM_WISHBONE ;
   context OSVVM_WISHBONE.WishboneContext ;
 
-entity TbRegister is
-end entity TbRegister ;
-architecture TestHarness of TbRegister is
+entity TestHarness is
+end entity TestHarness ;
+architecture Structural of TestHarness is
   constant ADDR_WIDTH : integer := 32 ;
   constant DATA_WIDTH : integer := 32 ;
 
@@ -204,4 +204,4 @@ begin
     SubordinateRec => Subordinate.TransRec
   ) ;
 
-end architecture TestHarness ;
+end architecture Structural ;
