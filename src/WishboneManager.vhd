@@ -357,7 +357,7 @@ begin
             if IsReadCheck(TransRec.Operation) then
               ExpectedData := SafeResize(ModelID, TransRec.DataToModel, ExpectedData'length) ;
               AffirmIfEqual( DataCheckID, Local.iDat, ExpectedData,
-                "  Read Address: " & to_hxstring(Local.Adr) &
+                "Read Address: " & to_hxstring(Local.Adr) &
                 "  Data: ",
                 TransRec.StatusMsgOn or IsLogEnabled(ModelID, INFO) ) ;
             else
@@ -541,15 +541,15 @@ begin
       
       if (Local.We = '1') then 
         Log(ModelID,
-          "Write Address." & to_hxstring(Local.Adr) &
-          "  Data." & to_hxstring(Local.oDat) &
+          "Write Address: " & to_hxstring(Local.Adr) &
+          "  Data: " & to_hxstring(Local.oDat) &
           "  Operation# " & to_string(StartDoneCount + 1),
           INFO
         ) ;
       else
         Log(ModelID,
-          "Read Address." & to_hxstring(Local.Adr) &
---          "  Data." &  to_hxstring(Local.Adr) &
+          "Read Address: " & to_hxstring(Local.Adr) &
+--          "  Data: " &  to_hxstring(Local.Adr) &
           "  Operation# " & to_string(StartDoneCount + 1),
           INFO
         ) ;
