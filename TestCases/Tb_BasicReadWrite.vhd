@@ -83,50 +83,52 @@ begin
     variable Addr : std_logic_vector(ADDR_WIDTH-1 downto 0) := ADDR_ZERO ;
     variable Data : std_logic_vector(DATA_WIDTH-1 downto 0) ;
     constant TEST_ADDR_INCREMENT : integer := 16#20# ;
+    variable ID : AlertLogIDType ; 
   begin
     wait until nReset = '1' ;  
     WaitForClock(ManagerRec, 2) ; 
+    ID := NewID("Tb") ;
     
-    log("Write, Read, ReadCheck words, 4 Bytes") ;
+    log(ID, "Write, Read, ReadCheck words, 4 Bytes") ;
     Addr := ADDR_ZERO ; 
     Write(ManagerRec,   Addr, X"5555_5555" ) ;
     Read(ManagerRec,    Addr, Data) ;
-    AffirmIfEqual(Data, X"5555_5555", "Manager Read Data: ") ;
+    AffirmIfEqual(ID, Data, X"5555_5555", "Read Data: ") ;
 
 
-    log("Read with 1 Byte, and ByteAddr = 0, 1, 2, 3") ; 
+    log(ID, "Read with 1 Byte, and ByteAddr = 0, 1, 2, 3") ; 
     Addr := Addr + WORD_ADDR_INCREMENT ;
     Write    (ManagerRec, Addr, X"A4A3A2A1" ) ;
     ReadCheck(ManagerRec, Addr, X"A4A3A2A1" ) ;
 
     Read(ManagerRec,  Addr,     Data(7 downto 0)) ;
-    AffirmIfEqual(Data(7 downto 0), X"A1", "Manager Read Data: ") ;
+    AffirmIfEqual(ID, Data(7 downto 0), X"A1", "Read Data: ") ;
     Read(ManagerRec,  Addr + 1, Data(7 downto 0)) ;
-    AffirmIfEqual(Data(7 downto 0), X"A2", "Manager Read Data: ") ;
+    AffirmIfEqual(ID, Data(7 downto 0), X"A2", "Read Data: ") ;
     Read(ManagerRec,  Addr + 2, Data(7 downto 0)) ;
-    AffirmIfEqual(Data(7 downto 0), X"A3", "Manager Read Data: ") ;
+    AffirmIfEqual(ID, Data(7 downto 0), X"A3", "Read Data: ") ;
     Read(ManagerRec,  Addr + 3, Data(7 downto 0)) ;
-    AffirmIfEqual(Data(7 downto 0), X"A4", "Manager Read Data: ") ;
+    AffirmIfEqual(ID, Data(7 downto 0), X"A4", "Read Data: ") ;
 
-    log("Read with 2 Bytes, and ByteAddr = 0, 1, 2") ; 
+    log(ID, "Read with 2 Bytes, and ByteAddr = 0, 1, 2") ; 
     Addr := Addr + WORD_ADDR_INCREMENT ;
     Write    (ManagerRec, Addr, X"B4B3B2B1" ) ;
     Read(ManagerRec,  Addr,     Data(15 downto 0)) ;
-    AffirmIfEqual(Data(15 downto 0), X"B2B1", "Manager Read Data: ") ;
+    AffirmIfEqual(ID, Data(15 downto 0), X"B2B1", "Read Data: ") ;
     Read(ManagerRec,  Addr + 1, Data(15 downto 0)) ;
-    AffirmIfEqual(Data(15 downto 0), X"B3B2", "Manager Read Data: ") ;
+    AffirmIfEqual(ID, Data(15 downto 0), X"B3B2", "Read Data: ") ;
     Read(ManagerRec,  Addr + 2, Data(15 downto 0)) ;
-    AffirmIfEqual(Data(15 downto 0), X"B4B3", "Manager Read Data: ") ;
+    AffirmIfEqual(ID, Data(15 downto 0), X"B4B3", "Read Data: ") ;
 
-    log("Read with 3 Bytes, and ByteAddr = 0, 1") ; 
+    log(ID, "Read with 3 Bytes, and ByteAddr = 0, 1") ; 
     Addr := Addr + WORD_ADDR_INCREMENT ;
     Write    (ManagerRec, Addr, X"C4C3C2C1" ) ;
     Read(ManagerRec,  Addr,     Data(23 downto 0)) ;
-    AffirmIfEqual(Data(23 downto 0), X"C3C2C1", "Manager Read Data: ") ;
+    AffirmIfEqual(ID, Data(23 downto 0), X"C3C2C1", "Read Data: ") ;
     Read(ManagerRec,  Addr + 1, Data(23 downto 0)) ;
-    AffirmIfEqual(Data(23 downto 0), X"C4C3C2", "Manager Read Data: ") ;
+    AffirmIfEqual(ID, Data(23 downto 0), X"C4C3C2", "Read Data: ") ;
 
-    log("Write and ReadCheck with 1 Byte, and ByteAddr = 0, 1, 2, 3") ; 
+    log(ID, "Write and ReadCheck with 1 Byte, and ByteAddr = 0, 1, 2, 3") ; 
     Addr := ADDR_ZERO + TEST_ADDR_INCREMENT ; 
     Write(ManagerRec, Addr,     X"D1" ) ;
     Write(ManagerRec, Addr + 1, X"D2" ) ;
@@ -134,14 +136,14 @@ begin
     Write(ManagerRec, Addr + 3, X"D4" ) ;
 
     Read(ManagerRec,    Addr, Data) ;
-    AffirmIfEqual(Data, X"D4D3_D2D1", "Manager Read Data: ") ;
+    AffirmIfEqual(ID, Data, X"D4D3_D2D1", "Read Data: ") ;
     
     ReadCheck(ManagerRec,  Addr,     X"D1") ;
     ReadCheck(ManagerRec,  Addr + 1, X"D2") ;
     ReadCheck(ManagerRec,  Addr + 2, X"D3") ;
     ReadCheck(ManagerRec,  Addr + 3, X"D4") ;
 
-    log("Write and Read with 2 Bytes, and ByteAddr = 0, 1, 2") ; 
+    log(ID, "Write and Read with 2 Bytes, and ByteAddr = 0, 1, 2") ; 
     Addr := ADDR_ZERO + 2*TEST_ADDR_INCREMENT ; 
     Write(ManagerRec, Addr,     X"1211" ) ;
     Addr := Addr + WORD_ADDR_INCREMENT ;
@@ -156,7 +158,7 @@ begin
     Addr := Addr + WORD_ADDR_INCREMENT ;
     ReadCheck(ManagerRec, Addr + 2, X"3433" ) ;
 
-    log("Write and Read with 3 Bytes and ByteAddr = 0. 1") ;
+    log(ID, "Write and Read with 3 Bytes and ByteAddr = 0. 1") ;
     Addr := ADDR_ZERO + 3*TEST_ADDR_INCREMENT ; 
     Write(ManagerRec, Addr,                           X"43_4241" ) ;
     Write(ManagerRec, Addr + WORD_ADDR_INCREMENT + 1, X"5453_52" ) ;
