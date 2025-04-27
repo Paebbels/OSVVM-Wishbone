@@ -53,18 +53,18 @@ package WishboneComponentPkg is
   component WishboneManager is
   ------------------------------------------------------------
   generic (
-      MODEL_ID_NAME    : string := "" ;
-      tperiod_Clk      : time   := 10 ns ;
+      MODEL_ID_NAME      : string  := "" ;
+      WISHBONE_PIPELINED : boolean := TRUE ;
       
-      DEFAULT_DELAY    : time   := 1 ns ;
-      tpd_Clk_Adr      : time   := DEFAULT_DELAY ; 
-      tpd_Clk_oDat     : time   := DEFAULT_DELAY ; 
-      tpd_Clk_Stb      : time   := DEFAULT_DELAY ; 
-      tpd_Clk_Cyc      : time   := DEFAULT_DELAY ; 
-      tpd_Clk_Cti      : time   := DEFAULT_DELAY ; 
-      tpd_Clk_We       : time   := DEFAULT_DELAY ; 
-      tpd_Clk_Sel      : time   := DEFAULT_DELAY ;
-      tpd_Clk_Lock     : time   := DEFAULT_DELAY  
+      DEFAULT_DELAY      : time   := 1 ns ;
+      tpd_Clk_Adr        : time   := DEFAULT_DELAY ; 
+      tpd_Clk_oDat       : time   := DEFAULT_DELAY ; 
+      tpd_Clk_Stb        : time   := DEFAULT_DELAY ; 
+      tpd_Clk_Cyc        : time   := DEFAULT_DELAY ; 
+      tpd_Clk_Cti        : time   := DEFAULT_DELAY ; 
+      tpd_Clk_We         : time   := DEFAULT_DELAY ; 
+      tpd_Clk_Sel        : time   := DEFAULT_DELAY ;
+      tpd_Clk_Lock       : time   := DEFAULT_DELAY  
     ) ;
     port (
       -- Globals

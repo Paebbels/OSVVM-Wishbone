@@ -57,18 +57,18 @@ library osvvm_common ;
 
 entity WishboneManager is
 generic (
-  MODEL_ID_NAME    : string := "" ;
-  tperiod_Clk      : time   := 10 ns ;
+  MODEL_ID_NAME      : string  := "" ;
+  WISHBONE_PIPELINED : boolean := FALSE ;
   
-  DEFAULT_DELAY    : time   := 1 ns ;
-  tpd_Clk_Adr      : time   := DEFAULT_DELAY ; 
-  tpd_Clk_oDat     : time   := DEFAULT_DELAY ; 
-  tpd_Clk_Stb      : time   := DEFAULT_DELAY ; 
-  tpd_Clk_Cyc      : time   := DEFAULT_DELAY ; 
-  tpd_Clk_Cti      : time   := DEFAULT_DELAY ; 
-  tpd_Clk_We       : time   := DEFAULT_DELAY ; 
-  tpd_Clk_Sel      : time   := DEFAULT_DELAY ;
-  tpd_Clk_Lock     : time   := DEFAULT_DELAY  
+  DEFAULT_DELAY      : time   := 1 ns ;
+  tpd_Clk_Adr        : time   := DEFAULT_DELAY ; 
+  tpd_Clk_oDat       : time   := DEFAULT_DELAY ; 
+  tpd_Clk_Stb        : time   := DEFAULT_DELAY ; 
+  tpd_Clk_Cyc        : time   := DEFAULT_DELAY ; 
+  tpd_Clk_Cti        : time   := DEFAULT_DELAY ; 
+  tpd_Clk_We         : time   := DEFAULT_DELAY ; 
+  tpd_Clk_Sel        : time   := DEFAULT_DELAY ;
+  tpd_Clk_Lock       : time   := DEFAULT_DELAY  
 ) ;
 port (
   -- Globals
@@ -102,8 +102,7 @@ architecture VerificationComponent of WishboneManager is
   constant DEFAULT_BURST_MODE : AddressBusFifoBurstModeType := ADDRESS_BUS_BURST_WORD_MODE ;
   signal   BurstFifoMode      : AddressBusFifoBurstModeType := DEFAULT_BURST_MODE ;
   signal   BurstFifoByteMode  : boolean := (DEFAULT_BURST_MODE = ADDRESS_BUS_BURST_BYTE_MODE) ; 
-  signal   PipeMode  : integer := 0 ; 
-  constant PIPELINED : integer := 1 ; 
+  signal   PipeMode  : boolean := WISHBONE_PIPELINED ; 
 
   signal ModelID, ProtocolID, DataCheckID, BusFailedID : AlertLogIDType ;
 
@@ -181,7 +180,6 @@ begin
     alias LocalAdr : std_logic_vector(Local.Adr'length-1 downto 0) is Local.Adr ; 
     alias LocalByteAdr is LocalAdr(BYTE_ADDR_WIDTH -1 downto 0) ;
 
-    
     variable ByteAddr   : integer ;
 
     variable BytesToSend     : integer ;
@@ -319,9 +317,9 @@ begin
         when READ_OP | READ_CHECK | READ_ADDRESS | READ_DATA | READ_DATA_CHECK | ASYNC_READ_ADDRESS | ASYNC_READ_DATA | ASYNC_READ_DATA_CHECK =>
           if IsReadAddress(Operation) then
             -- Send Read Address to Read Address Handler and Read Data Handler
-            Local.Adr       := SafeResize(ModelID, TransRec.Address, Local.Adr'length) ;
+            Local.Adr   := SafeResize(ModelID, TransRec.Address, Local.Adr'length) ;
             ByteAddr    := to_integer(Local.Adr and BYTE_ADDR_MASK) ;
-            Local.iDat      := AlignBytesToDataBus(to_slv(0, Local.iDat'length), TransRec.DataWidth, ByteAddr) ;
+            Local.iDat  := AlignBytesToDataBus(to_slv(0, Local.iDat'length), TransRec.DataWidth, ByteAddr) ;
 
             Push(StartTransactionFifo, '0' & Local.Adr  & Local.iDat & Local.Lock & "000" & Local.Cyc) ;           
             Push(ReadAddressTransactionFifo, Local.Adr);
@@ -337,8 +335,8 @@ begin
             TransRec.BoolFromModel <= FALSE ;
             TransRec.DataFromModel <= (TransRec.DataFromModel'range => '0') ; 
           elsif IsReadData(Operation) then
-            Local.Adr     := Pop(ReadAddressTransactionFifo) ;
-            ByteAddr  := to_integer(Local.Adr and BYTE_ADDR_MASK) ;
+            Local.Adr  := Pop(ReadAddressTransactionFifo) ;
+            ByteAddr   := to_integer(Local.Adr and BYTE_ADDR_MASK) ;
 
             -- Wait for Data Ready
             if IsEmpty(ReadDataFifo) then
@@ -350,19 +348,19 @@ begin
             Local.iDat := Pop(ReadDataFifo) ;
             Local.iDat := AlignDataBusToBytes(Local.iDat, TransRec.DataWidth, ByteAddr) ;
             TransRec.DataFromModel <= SafeResize(ModelID, Local.iDat, TransRec.DataFromModel'length) ;
-            CheckDataIsBytes(ModelID, TransRec.DataWidth, "Manager Read: ", ReadDataExpectCount) ;
-            CheckDataWidth  (ModelID, TransRec.DataWidth, ByteAddr, DATA_WIDTH, "Manager Read: ", ReadDataExpectCount) ;
+            CheckDataIsBytes(ModelID, TransRec.DataWidth, "Read: ", ReadDataExpectCount) ;
+            CheckDataWidth  (ModelID, TransRec.DataWidth, ByteAddr, DATA_WIDTH, "Read: ", ReadDataExpectCount) ;
 
             -- Check or Log Read Data
             if IsReadCheck(TransRec.Operation) then
               ExpectedData := SafeResize(ModelID, TransRec.DataToModel, ExpectedData'length) ;
               AffirmIfEqual( DataCheckID, Local.iDat, ExpectedData,
-                "Read Address: " & to_hxstring(Local.Adr) &
+                "Read Address:  " & to_hxstring(Local.Adr) &
                 "  Data: ",
                 TransRec.StatusMsgOn or IsLogEnabled(ModelID, INFO) ) ;
             else
               Log( ModelID,
-                "Read Address: " & to_hxstring(Local.Adr) &
+                "Read Address:  " & to_hxstring(Local.Adr) &
                 "  Data: " & to_hxstring(Local.iDat),
                 INFO,
                 TransRec.StatusMsgOn
@@ -460,7 +458,7 @@ begin
   iAck <= WishboneBus.Ack or WishboneBus.Rty or WishboneBus.Err  ;
   
   CycleDone <=
-    not WishboneBus.Stall when PipeMode = PIPELINED else iAck ; 
+    not WishboneBus.Stall when PipeMode else iAck ; 
     
 
   ------------------------------------------------------------
@@ -494,25 +492,26 @@ begin
     StartTransactionLoop : loop
       -- Find Transaction in FIFO
       if IsEmpty(StartTransactionFifo) then
-         WaitForToggle(StartRequestCount) ;
+        WaitForToggle(StartRequestCount) ;
       end if ;
       (Local.We, Local.Adr, Local.oDat, Local.Lock, Local.Cti, Local.Cyc) := Pop(StartTransactionFifo) ;
       
       -- Pipelined reads must finish before another cycle can start - otherwise We changes.
-      if PipeMode = PIPELINED then 
+      if PipeMode then 
         if PreviousWe = '0' and Local.We = '1' and TransactionStartCount /= TransactionDoneCount then
           wait until TransactionStartCount = TransactionDoneCount ; 
         end if ;
       end if ; 
 
-      -- Valid Delay between Transfers
-      if UseCoverageDelays then 
-        -- BurstCoverage Delay
-        DelayCycles := GetRandDelay(DelayCovID) ; 
-      else
-        -- Constant Delay
-        DelayCycles := DelayValueSetting ; 
-      end if ; 
+--!!      -- Valid Delay between Transfers
+--!!      if UseCoverageDelays then 
+--!!        -- BurstCoverage Delay
+--!!        DelayCycles := GetRandDelay(DelayCovID) ; 
+--!!      else
+--!!        -- Constant Delay
+--!!        DelayCycles := DelayValueSetting ; 
+--!!      end if ; 
+      DelayCycles := GetRandDelay(DelayCovID) when UseCoverageDelays else DelayValueSetting ; 
       WaitForClock(Clk, DelayCycles) ; 
 
       TransactionStartCount <= TransactionStartCount + 1 ; 
@@ -548,7 +547,7 @@ begin
         ) ;
       else
         Log(ModelID,
-          "Read Address: " & to_hxstring(Local.Adr) &
+          "Read Address:  " & to_hxstring(Local.Adr) &
 --          "  Data: " &  to_hxstring(Local.Adr) &
           "  Operation# " & to_string(StartDoneCount + 1),
           INFO
