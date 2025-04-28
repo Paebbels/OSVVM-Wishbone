@@ -163,7 +163,6 @@ begin
     wait ;
   end process Initialize ;
 
-
   ------------------------------------------------------------
   --  Transaction Dispatcher
   --    Dispatches transactions to
@@ -243,6 +242,12 @@ begin
         when GET_TRANSACTION_COUNT =>
           TransRec.IntFromModel <= integer(TransRec.Rdy) ; --  WriteStartDoneCount + ReadStartDoneCount ;
           wait for 0 ns ; 
+        
+        when WAIT_FOR_TRANSACTION =>
+          if StartRequestCount /= StartDoneCount then
+            -- Block until done.
+            wait until StartRequestCount = StartDoneCount ;
+          end if ; 
 
 --       when GET_WRITE_TRANSACTION_COUNT =>
 --         TransRec.IntFromModel <= 0 ; -- WriteStartDoneCount ;
@@ -473,7 +478,7 @@ begin
   begin
     -- Initialize Ports
     -- Wishbone Lite Signaling
-    WB.Cyc    <= '0' ;
+  -- WB.Cyc    <= '0' ;
     WB.Lock   <= '0' ;
     WB.Stb    <= '0' ;
     WB.We     <= '0' ;
