@@ -160,7 +160,7 @@ begin
   ------------------------------------------------------------
   generic map(
     WB_ADR         => (Subordinate.Adr'range => '-'),  -- for now match any address
-    NUM_REGISTERS  => 64  -- Address is bit-wise: AAAA AA--
+    NUM_REGISTERS  => 16#400#  -- Address is bit-wise: AAAA AA--
   ) 
   port map (
     -- Globals
