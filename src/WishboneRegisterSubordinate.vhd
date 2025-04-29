@@ -25,7 +25,6 @@
 --  This file is part of OSVVM.
 --  
 --  Copyright (c) 2025 by SynthWorks Design Inc.  
-
 --
 --  Licensed under the Apache License, Version 2.0 (the "License");
 --  you may not use this file except in compliance with the License.
@@ -47,7 +46,7 @@ library ieee ;
 
 library osvvm ;
   context osvvm.OsvvmContext ;
---  use osvvm.ScoreboardPkg_slv.all ;
+  use osvvm.ScoreboardPkg_slv.all ;
 
 library osvvm_common ;
   context osvvm_common.OsvvmCommonContext ;
@@ -59,11 +58,16 @@ library osvvm_common ;
 entity WishboneRegisterSubordinate is
   generic (
     MODEL_ID_NAME    : string  := "" ;
-    WB_ADR           : std_logic_vector ;
-    NUM_REGISTERS    : integer := 8 ;
-    DEFAULT_DELAY    : time   := 1 ns ;
-    tpd_Clk_Ack      : time   := DEFAULT_DELAY ;
-    tpd_Clk_Stall    : time   := DEFAULT_DELAY  
+    MEMORY_NAME      : string  := "" ;
+    WB_ADDR          : std_logic_vector := "-" & X"--_----" ; -- Default 8M words divided between Register, Memory, DMA
+    REGISTER_ADDR    : std_logic_vector := "0" & X"00_----" ; -- Default 1K words of register 
+    MEMORY_ADDR      : std_logic_vector := "1" & X"--_----" ; -- Default 4M words 
+    DMA_WRITE_ADDR   : std_logic_vector := "0" & X"F0_0000" ;  
+    DMA_READ_ADDR    : std_logic_vector := "0" & X"F0_0000" ;  
+    
+    DEFAULT_DELAY    : time    := 1 ns ;
+    tpd_Clk_Ack      : time    := DEFAULT_DELAY ;
+    tpd_Clk_Stall    : time    := DEFAULT_DELAY  
   ) ;
   port (
     Clk             : in    std_logic ;
@@ -75,18 +79,39 @@ entity WishboneRegisterSubordinate is
     -- Testbench Transaction Interface
     TransRec      : inout AddressBusRecType 
   ) ;
-  constant ADDR_WIDTH : integer := WishboneBus.Adr'length ; 
-  constant DATA_WIDTH : integer := WishboneBus.oDat'length ;  
-  constant SEL_WIDTH  : integer := WishboneBus.Sel'length ; 
-  constant BYTE_ADDR_WIDTH     : integer := integer(ceil(log2(real(SEL_WIDTH)))) ;
-  constant REGISTER_ADDR_WIDTH : integer := integer(ceil(log2(real(NUM_REGISTERS)))) ;
 
   -- Derive ModelInstance label from path_name
   constant MODEL_INSTANCE_NAME : string :=
   -- use MODEL_ID_NAME Generic if set, otherwise use instance label (preferred if set as entityname_1)
       IfElse(MODEL_ID_NAME /= "", MODEL_ID_NAME, to_lower(PathTail(WishboneRegisterSubordinate'PATH_NAME))) ;
-
   constant MODEL_NAME : string := "WishboneRegisterSubordinate" ;
+
+  constant LOCAL_MEMORY_NAME : string := 
+    IfElse(MEMORY_NAME /= "", MEMORY_NAME, MODEL_INSTANCE_NAME & ":memory") ;
+  
+  constant ADDR_WIDTH            : integer := WishboneBus.Adr'length ; 
+  alias    NormalizedAddr        : std_logic_vector(ADDR_WIDTH-1 downto 0) is WishboneBus.Adr ; 
+  constant NORM_WB_ADDR          : std_logic_vector := resize(WB_ADDR,        ADDR_WIDTH) ;
+  constant NORM_REGISTER_ADDR    : std_logic_vector := resize(REGISTER_ADDR,  ADDR_WIDTH) ; -- Default 1K of register 
+  constant NORM_MEMORY_ADDR      : std_logic_vector := resize(MEMORY_ADDR,    ADDR_WIDTH) ; -- Default 4M words - non-overlapping
+  constant NORM_DMA_WRITE_ADDR   : std_logic_vector := resize(DMA_WRITE_ADDR, ADDR_WIDTH) ; 
+  constant NORM_DMA_READ_ADDR    : std_logic_vector := resize(DMA_READ_ADDR,  ADDR_WIDTH) ;
+
+  constant DATA_WIDTH            : integer := WishboneBus.oDat'length ;  
+  alias    NormalizediDat        : std_logic_vector(DATA_WIDTH-1 downto 0) is WishboneBus.iDat ; 
+  constant DATA_BYTES            : integer := DATA_WIDTH / 8 ;  
+  constant SEL_WIDTH             : integer := WishboneBus.Sel'length ;
+  constant BYTE_ADDR_WIDTH       : integer := integer(ceil(log2(real(DATA_BYTES)))) ;
+
+  constant WORD_ADDR_WIDTH       : integer := ADDR_WIDTH - BYTE_ADDR_WIDTH ;
+  subtype  WordAddrRange is natural range WORD_ADDR_WIDTH-1 downto BYTE_ADDR_WIDTH ;
+
+  constant WB_ADDR_WIDTH         : integer := CountDontCare(WB_ADDR) ; 
+--  subtype  WbAddrRange is natural range WB_ADDR_WIDTH-1 downto BYTE_ADDR_WIDTH ;
+--  constant REGISTER_ADDR_WIDTH   : integer := CountDontCare(REGISTER_ADDR) ; 
+--  subtype  RegisterAddrRange is natural range REGISTER_ADDR_WIDTH-1 downto BYTE_ADDR_WIDTH ;
+--  constant MEMORY_ADDR_WIDTH     : integer := CountDontCare(MEMORY_ADDR) ;
+--  subtype  MemoryAddrRange   is natural range MEMORY_ADDR_WIDTH-1 downto BYTE_ADDR_WIDTH ; 
 
 end WishboneRegisterSubordinate;
 
@@ -94,23 +119,16 @@ architecture VerificationComponent of WishboneRegisterSubordinate is
   signal Enable   : std_logic ;
   signal WrAck    : std_logic ;
   signal RdAck    : std_logic ;
-  type   RegBankType is array(0 to NUM_REGISTERS-1) of std_logic_vector(WishboneBus.idat'range) ;
-  signal RegBank : RegBankType ;
-
---  signal NormalizedAdr : std_logic_vector(ADDR_WIDTH-1 downto 0) ;
-  alias NormalizedAdr  : std_logic_vector(ADDR_WIDTH-1 downto 0) is WishboneBus.Adr ; 
-  alias NormalizediDat : std_logic_vector(DATA_WIDTH-1 downto 0) is WishboneBus.iDat ; 
-  subtype RegisterAdrRange is natural range REGISTER_ADDR_WIDTH-1 downto BYTE_ADDR_WIDTH ;
 
   signal DelayValueSetting : integer := 0 ; 
   signal UseCoverageDelays : boolean := FALSE ; 
   signal DelayCovID : DelayCoverageIDType ; 
   signal ModelID    : AlertLogIDType ;
 
-  signal Params : ModelParametersIDType ;
-
   -- Internal Resources
---  signal DataFifo        : osvvm.ScoreboardPkg_slv.ScoreboardIDType ;
+  signal Params     : ModelParametersIDType ;
+  signal MemoryID   : MemoryIDType ; 
+  signal DmaFifo    : osvvm.ScoreboardPkg_slv.ScoreboardIDType ;
 
 begin
   ------------------------------------------------------------
@@ -123,20 +141,39 @@ begin
   --  Initialize alerts
   ------------------------------------------------------------
   Initialize : process
-    variable ID : AlertLogIDType ;
+    variable ID, ParentID : AlertLogIDType ;
+    variable vMemID  : MemoryIDType ; 
     variable vParams : ModelParametersIDType ; 
   begin
-    -- Alerts
-    ID         := NewID(MODEL_INSTANCE_NAME) ;
-    ModelID    <= ID ;
+  
+    ID  := NewID(MODEL_INSTANCE_NAME) ;
+    ModelID   <= ID ;
+
+    -- Select ParentID for Memory Model
+    if MODEL_INSTANCE_NAME /= LOCAL_MEMORY_NAME then 
+      -- No Match:  Memory Model is a child of this ID 
+      ParentID := ID ; 
+    else
+      -- Match: Memory Data Structure uses same AlertLogID as VC
+      ParentID := ALERTLOG_BASE_ID ; 
+    end if ; 
     
-    vParams    := NewID("Wishbone Parameters", to_integer(OPTIONS_MARKER), ID) ; 
-    InitAxiOptions(vParams) ;
-    Params     <= vParams ; 
+    vMemID := NewID(
+      Name       => LOCAL_MEMORY_NAME, 
+      AddrWidth  => WB_ADDR_WIDTH,      -- Address for registers and memory
+      DataWidth  => DATA_WIDTH,         -- Word oriented
+      ParentID   => ParentID, 
+      Search     => NAME
+    ) ; 
+    MemoryID  <= vMemID ; 
+
+--    vParams    := NewID("Wishbone Parameters", to_integer(OPTIONS_MARKER), ID) ; 
+--    InitAxiOptions(vParams) ;
+--    Params     <= vParams ; 
 
     -- FIFOs get an AlertLogID with NewID, however, it does not print in ReportAlerts (due to DoNotReport)
     --   FIFOS only generate usage type errors 
- --   DataFifo   <= NewID("DataFifo", ID, ReportMode => DISABLED, Search => PRIVATE_NAME);
+    DmaFifo   <= NewID("DmaFifo", ID, ReportMode => DISABLED, Search => PRIVATE_NAME);
     wait ;
   end process Initialize ;
 
@@ -145,9 +182,6 @@ begin
   --    Dispatches transactions to
   ------------------------------------------------------------
   TransactionDispatcher : process
-    variable WishboneOption    : WishboneOptionsType ;
-    variable WishboneOptionVal : integer ;
-
     variable Local  : WishboneBus'subtype ; 
     alias LocalAdr  : std_logic_vector(Local.Adr'length-1 downto 0) is Local.Adr ; 
     alias LocalByteAdr is LocalAdr(BYTE_ADDR_WIDTH -1 downto 0) ;
@@ -183,6 +217,10 @@ begin
           TransRec.IntFromModel <= integer(ModelID) ;
           wait for 0 ns ; 
 
+        when GET_TRANSACTION_COUNT =>
+          TransRec.IntFromModel <= integer(TransRec.Rdy) ; 
+          wait for 0 ns ; 
+          
         when SET_USE_RANDOM_DELAYS =>        
           UseCoverageDelays      <= TransRec.BoolToModel ; 
 
@@ -197,10 +235,6 @@ begin
           TransRec.IntFromModel <= DelayCovID.ID  ;
           UseCoverageDelays <= TRUE ; 
 
-        when GET_TRANSACTION_COUNT =>
-          TransRec.IntFromModel <= integer(TransRec.Rdy) ; --  WriteStartDoneCount + ReadStartDoneCount ;
-          wait for 0 ns ; 
---          
         -- Model Configuration Options
         when SET_MODEL_OPTIONS =>
 --           WishboneOption := WishboneOptionsType'val(TransRec.Options) ;
@@ -230,7 +264,7 @@ begin
   ------------------------------------------------------------
   -- Decode and Combine 
   ------------------------------------------------------------
-  Enable            <= WishboneBus.Adr ?= WB_ADR ;
+  Enable            <= WishboneBus.Adr ?= NORM_WB_ADDR ;
   WishboneBus.Ack   <= WrAck or RdAck after tpd_Clk_Ack ; 
   WishboneBus.Rty   <= '0' ; 
   WishboneBus.Err   <= '0' ; 
@@ -240,25 +274,38 @@ begin
   -- Write to Register Bank
   ------------------------------------------------------------
   WriteProc : process 
-    variable intRegisterAdr : integer ; 
     variable Offset : integer ; 
     variable DelayCycles : integer ; 
+    variable WData : WishboneBus.iDat'Subtype ; 
   begin
     WrAck <= '0' ; 
     WriteLoop : loop 
       wait until rising_edge(Clk) and Enable = '1' and WishboneBus.Stb = '1' and WishboneBus.We = '1' ; 
-      intRegisterAdr := to_integer(NormalizedAdr(RegisterAdrRange)) ;
-      if intRegisterAdr < NUM_REGISTERS then 
+      if    NormalizedAddr ?= NORM_DMA_WRITE_ADDR then 
+        --  accepts full word writes
+        push(DmaFifo, NormalizediDat) ;
+
+      elsif NormalizedAddr ?= NORM_REGISTER_ADDR then 
+        MemRead(MemoryID, NormalizedAddr(WordAddrRange), WData) ;
         for i in 0 to SEL_WIDTH-1 loop 
           if WishboneBus.Sel(i) = '1' then 
             Offset := i * 8 ; 
-            RegBank(intRegisterAdr)(Offset + 7 downto Offset) <= NormalizediDat(Offset + 7 downto Offset) ; 
+            WData(Offset + 7 downto Offset) := NormalizediDat(Offset + 7 downto Offset) ; 
           end if ; 
         end loop ;
-      else
-        -- if NUM_REGISTERS is 2**n this will never happen
-        Alert(ModelID, "Write Address: " & to_string(intRegisterAdr) & " is too big.", FAILURE) ;
-      end if ; 
+        MemWrite(MemoryID, NormalizedAddr(WordAddrRange), WData) ;
+      
+      elsif NormalizedAddr ?= NORM_MEMORY_ADDR then
+        MemRead(MemoryID, NormalizedAddr(WordAddrRange), WData) ;
+        for i in 0 to SEL_WIDTH-1 loop 
+          if WishboneBus.Sel(i) = '1' then 
+            Offset := i * 8 ; 
+            WData(Offset + 7 downto Offset) := NormalizediDat(Offset + 7 downto Offset) ; 
+          end if ; 
+        end loop ;
+        MemWrite(MemoryID, NormalizedAddr(WordAddrRange), WData) ;
+
+      end if ;
 
       DelayCycles := GetRandDelay(DelayCovID) when UseCoverageDelays else DelayValueSetting ; 
       WaitForClock(Clk, DelayCycles) ; 
@@ -272,24 +319,29 @@ begin
   -- Read from Register Bank
   ------------------------------------------------------------
   ReadProc : process 
-    variable intRegisterAdr : integer ; 
     variable DelayCycles : integer ; 
+    variable RData : WishboneBus.oDat'Subtype ; 
   begin
     RdAck <= '0' ; 
     ReadLoop : loop 
-      wait until rising_edge(Clk) and Enable = '1' and WishboneBus.Stb = '1' and WishboneBus.We = '0' ; 
-      intRegisterAdr := to_integer(NormalizedAdr(RegisterAdrRange)) ;
-    --       intRegisterAdr := to_integer(RegisterAdr) ;
-      if intRegisterAdr < NUM_REGISTERS then 
-        WishboneBus.oDat <= RegBank(intRegisterAdr) ; 
-      else
-        -- if NUM_REGISTERS is 2**n this will never happen
-        Alert(ModelID, "Read Address: " & to_string(intRegisterAdr) & " is too big.", FAILURE) ;
-      end if ;
+      wait until rising_edge(Clk) and Enable = '1' and WishboneBus.Stb = '1' and WishboneBus.We = '0' ;
+      if    NormalizedAddr ?= NORM_DMA_READ_ADDR then 
+        --  accepts full word writes
+        RData := pop(DmaFifo) ;
+
+      elsif NormalizedAddr ?= NORM_REGISTER_ADDR then 
+        MemRead(MemoryID, NormalizedAddr(WordAddrRange), RData) ;
+      
+      elsif NormalizedAddr ?= NORM_MEMORY_ADDR then
+        MemRead(MemoryID, NormalizedAddr(WordAddrRange), RData) ;
+
+      end if ; 
 
       DelayCycles := GetRandDelay(DelayCovID) when UseCoverageDelays else DelayValueSetting ; 
       WaitForClock(Clk, DelayCycles) ; 
       RdAck <= '1' ; 
+      WishboneBus.oDat <= RData ;
+
       WaitForClock(Clk) ;
       RdAck <= '0' ; 
     end loop ReadLoop ; 

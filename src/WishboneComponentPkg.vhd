@@ -83,11 +83,17 @@ package WishboneComponentPkg is
   component WishboneRegisterSubordinate is
   ------------------------------------------------------------
     generic (
-      WB_ADR           : std_logic_vector ;
-      NUM_REGISTERS    : integer := 8 ;
-      DEFAULT_DELAY    : time   := 1 ns ;
-      tpd_Clk_Ack      : time   := DEFAULT_DELAY ;
-      tpd_Clk_Stall    : time   := DEFAULT_DELAY  
+      MODEL_ID_NAME    : string  := "" ;
+      MEMORY_NAME      : string  := "" ;
+      WB_ADDR          : std_logic_vector := "-" & X"--_----" ; -- Default 8M words divided between Register, Memory, DMA
+      REGISTER_ADDR    : std_logic_vector := "0" & X"00_----" ; -- Default 1K words of register 
+      MEMORY_ADDR      : std_logic_vector := "1" & X"--_----" ; -- Default 4M words 
+      DMA_WRITE_ADDR   : std_logic_vector := "0" & X"F0_0000" ;  
+      DMA_READ_ADDR    : std_logic_vector := "0" & X"F0_0000" ;  
+      
+      DEFAULT_DELAY    : time    := 1 ns ;
+      tpd_Clk_Ack      : time    := DEFAULT_DELAY ;
+      tpd_Clk_Stall    : time    := DEFAULT_DELAY  
     ) ;
     port (
       Clk             : in    std_logic ;

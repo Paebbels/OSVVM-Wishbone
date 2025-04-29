@@ -54,7 +54,17 @@ library OSVVM_Common ;
 use work.WishboneInterfacePkg.all ;
 
 package WishboneOptionsPkg is
+  constant WB_CTI       : integer := 1 ;
+  constant WB_LOCK      : integer := 2 ;
+  constant WB_DELAY     : integer := 3 ;
+  constant WB_PIPELINE  : integer := 4 ;
 
+  constant WB_CTI_CLASSIC : std_logic_vector := "000" ;
+  constant WB_CTI_NOINC   : std_logic_vector := "001" ;
+  constant WB_CTI_INC     : std_logic_vector := "010" ;
+  constant WB_CTI_END     : std_logic_vector := "111" ;
+
+  /*
   type WishboneUnresolvedOptionsType is (
     -- Wishbone Model Options
     PIPELINED,
@@ -534,5 +544,7 @@ package body WishboneOptionsPkg is
 
     end case ;
   end function GetWishboneInterfaceDefault ;
-
 end package body WishboneOptionsPkg ;
+*/
+
+end package WishboneOptionsPkg ;

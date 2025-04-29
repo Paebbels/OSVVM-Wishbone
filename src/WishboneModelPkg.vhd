@@ -57,7 +57,12 @@ use work.WishboneInterfacePkg.all ;
   
 package WishboneModelPkg is 
 
-  
+  ------------------------------------------------------------
+  function CountDontCare (
+  ------------------------------------------------------------
+    A : std_logic_vector
+  ) return integer ; 
+
   ------------------------------------------------------------
   function CalculateByteAddress (
   -- Fetch the address and data the slave sees for a write 
@@ -167,6 +172,20 @@ end package WishboneModelPkg ;
 
 package body WishboneModelPkg is
  
+  ------------------------------------------------------------
+  function CountDontCare (
+  ------------------------------------------------------------
+    A : std_logic_vector
+  ) return integer is 
+    variable result : integer := 0 ; 
+  begin
+    for i in A'reverse_range loop 
+      exit when A(i) /= '-' ; 
+      result := result + 1 ; 
+    end loop ; 
+    return result ; 
+  end function CountDontCare ; 
+
   ------------------------------------------------------------
   function CalculateByteAddress (
   ------------------------------------------------------------

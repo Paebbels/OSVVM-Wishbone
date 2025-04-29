@@ -97,7 +97,9 @@ end entity WishboneManager ;
 architecture VerificationComponent of WishboneManager is
   -- Configuration Items
   signal UseCoverageDelays : boolean := FALSE ; 
-  signal DelayValueSetting : integer := 0 ; 
+  signal StaticDelayCycles : integer := 0 ; 
+  signal BurstCti          : std_logic_vector(2 downto 0) := WB_CTI_NOINC ;
+  signal Lock              : std_logic := '0' ; 
   signal DelayCovID : DelayCoverageIDType ;
   constant DEFAULT_BURST_MODE : AddressBusFifoBurstModeType := ADDRESS_BUS_BURST_WORD_MODE ;
   signal   BurstFifoMode      : AddressBusFifoBurstModeType := DEFAULT_BURST_MODE ;
@@ -149,9 +151,9 @@ begin
     DataCheckID             <= NewID("Data Check", ID ) ;
     BusFailedID             <= NewID("No response", ID ) ;
     
-    vParams                 := NewID("Wishbone Parameters", to_integer(OPTIONS_MARKER), ID) ; 
-    InitAxiOptions(vParams) ;
-    Params                  <= vParams ; 
+--    vParams                 := NewID("Wishbone Parameters", to_integer(OPTIONS_MARKER), ID) ; 
+--    InitAxiOptions(vParams) ;
+--    Params                  <= vParams ; 
 
     -- FIFOs get an AlertLogID with NewID, however, it does not print in ReportAlerts (due to DoNotReport)
     --   FIFOS only generate usage type errors 
@@ -171,9 +173,6 @@ begin
     variable ReadDataTransactionCount : integer := 1 ;
     variable ByteCount          : integer ;
     variable TransfersInBurst   : integer ;
-
-    variable WishboneOption    : WishboneOptionsType ;
-    variable WishboneOptionVal : integer ;
 
     variable Local  : WishboneBus'subtype ; 
     alias LocalAdr : std_logic_vector(Local.Adr'length-1 downto 0) is Local.Adr ; 
@@ -215,6 +214,10 @@ begin
           TransRec.IntFromModel <= integer(ModelID) ;
           wait for 0 ns ; 
 
+        when GET_TRANSACTION_COUNT =>
+          TransRec.IntFromModel <= integer(TransRec.Rdy) ; 
+          wait for 0 ns ; 
+        
         when SET_USE_RANDOM_DELAYS =>        
           UseCoverageDelays      <= TransRec.BoolToModel ; 
 
@@ -239,10 +242,6 @@ begin
         when GET_BURST_MODE =>                      
           TransRec.IntFromModel <= BurstFifoMode ;
 
-        when GET_TRANSACTION_COUNT =>
-          TransRec.IntFromModel <= integer(TransRec.Rdy) ; --  WriteStartDoneCount + ReadStartDoneCount ;
-          wait for 0 ns ; 
-        
         when WAIT_FOR_TRANSACTION =>
           if StartRequestCount /= StartDoneCount then
             -- Block until done.
@@ -299,13 +298,15 @@ begin
           PopWriteBurstData(TransRec.WriteBurstFifo, BurstFifoMode, Local.oDat, BytesToSend, ByteAddr) ;
 
           for BurstLoop in TransfersInBurst downto 2 loop    
-            Push(StartTransactionFifo, '1' & Local.Adr & Local.oDat & Local.Lock & "010" & '1') ;
+            Push(StartTransactionFifo, '1' & Local.Adr & Local.oDat & Local.Lock & BurstCti & '1') ;
             PopWriteBurstData(TransRec.WriteBurstFifo, BurstFifoMode, Local.oDat, BytesToSend, 0) ;
-            Local.Adr := Local.Adr + DATA_BYTE_WIDTH ; 
+            if BurstCti = WB_CTI_INC then
+              Local.Adr := Local.Adr + DATA_BYTE_WIDTH ; 
+            end if ; 
           end loop ; 
             
           -- Special handle last push
-          Push(StartTransactionFifo, '1' & Local.Adr & Local.oDat & Local.Lock & "111" & '0') ;
+          Push(StartTransactionFifo, '1' & Local.Adr & Local.oDat & Local.Lock & WB_CTI_END & '0') ;
 
           -- Increment(WriteDataRequestCount) ;
           StartRequestCount  <= Increment(StartRequestCount, TransfersInBurst) ;
@@ -394,12 +395,14 @@ begin
             Local.Adr := (Local.Adr and not BYTE_ADDR_MASK) ; 
             
             for BurstLoop in TransfersInBurst downto 2 loop    
-              Push(StartTransactionFifo, '0' & Local.Adr & Local.iDat & Local.Lock & "010" & '1') ;
-              Local.Adr := Local.Adr + DATA_BYTE_WIDTH ; 
+              Push(StartTransactionFifo, '0' & Local.Adr & Local.iDat & Local.Lock & BurstCti  & '1') ;
+              if BurstCti = WB_CTI_INC then
+                Local.Adr := Local.Adr + DATA_BYTE_WIDTH ; 
+              end if ; 
             end loop ; 
             
             -- Special handle last push
-            Push(StartTransactionFifo, '0' & Local.Adr & Local.oDat & Local.Lock & "111" & '0') ;
+            Push(StartTransactionFifo, '0' & Local.Adr & Local.oDat & Local.Lock & WB_CTI_END & '0') ;
             
             Push(ReadAddressTransactionFifo, Local.Adr);
             
@@ -436,20 +439,22 @@ begin
 
         -- Model Configuration Options
         when SET_MODEL_OPTIONS =>
---           WishboneOption := WishboneOptionsType'val(TransRec.Options) ;
---           if IsAxiInterface(WishboneOption) then
---             SetWishboneInterfaceDefault(AxiDefaults, WishboneOption, TransRec.IntToModel) ;
---           else
---             Set(Params, TransRec.Options, TransRec.IntToModel) ;
---           end if ;
--- 
+          case TransRec.Options is 
+            when WB_CTI      =>   BurstCti          <= to_slv(TransRec.IntToModel, BurstCti'length) ;
+            when WB_LOCK     =>   Lock              <= '0' when TransRec.IntToModel = 0 else '1' ;
+            when WB_DELAY    =>   StaticDelayCycles <= TransRec.IntToModel ; 
+            when WB_PIPELINE =>   PipeMode          <= TransRec.BoolToModel ; 
+            when others      =>   Alert(ModelID, ClassifyUnimplementedOperation(TransRec) & " Option: " & to_string(TransRec.Options), FAILURE) ; 
+          end case ; 
+
         when GET_MODEL_OPTIONS =>
---           WishboneOption := WishboneOptionsType'val(TransRec.Options) ;
---           if IsAxiInterface(WishboneOption) then
---             TransRec.IntFromModel <= GetWishboneInterfaceDefault(AxiDefaults, WishboneOption) ;
---           else
---             TransRec.IntFromModel <= Get(Params, TransRec.Options) ;
---           end if ;
+          case TransRec.Options is 
+            when WB_CTI      =>   TransRec.IntFromModel  <= to_integer(BurstCti) ;
+            when WB_LOCK     =>   TransRec.IntFromModel  <= 0 when Lock = '0' else 1 ; 
+            when WB_DELAY    =>   TransRec.IntFromModel  <= StaticDelayCycles ; 
+            when WB_PIPELINE =>   TransRec.BoolFromModel <= PipeMode ; 
+            when others      =>   Alert(ModelID, ClassifyUnimplementedOperation(TransRec) & " Option: " & to_string(TransRec.Options), FAILURE) ; 
+          end case ; 
 
         -- The End -- Done
         when others =>
@@ -478,7 +483,7 @@ begin
   begin
     -- Initialize Ports
     -- Wishbone Lite Signaling
-  -- WB.Cyc    <= '0' ;
+  -- WB.Cyc    <= '0' ;  -- set by separate process
     WB.Lock   <= '0' ;
     WB.Stb    <= '0' ;
     WB.We     <= '0' ;
@@ -508,15 +513,7 @@ begin
         end if ;
       end if ; 
 
---!!      -- Valid Delay between Transfers
---!!      if UseCoverageDelays then 
---!!        -- BurstCoverage Delay
---!!        DelayCycles := GetRandDelay(DelayCovID) ; 
---!!      else
---!!        -- Constant Delay
---!!        DelayCycles := DelayValueSetting ; 
---!!      end if ; 
-      DelayCycles := GetRandDelay(DelayCovID) when UseCoverageDelays else DelayValueSetting ; 
+      DelayCycles := GetRandDelay(DelayCovID) when UseCoverageDelays else StaticDelayCycles ; 
       WaitForClock(Clk, DelayCycles) ; 
 
       TransactionStartCount <= TransactionStartCount + 1 ; 
