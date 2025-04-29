@@ -215,11 +215,9 @@ begin
 
         when GET_ALERTLOG_ID =>
           TransRec.IntFromModel <= integer(ModelID) ;
-          wait for 0 ns ; 
 
         when GET_TRANSACTION_COUNT =>
           TransRec.IntFromModel <= integer(TransRec.Rdy) ; 
-          wait for 0 ns ; 
           
         when SET_USE_RANDOM_DELAYS =>        
           UseCoverageDelays      <= TransRec.BoolToModel ; 
