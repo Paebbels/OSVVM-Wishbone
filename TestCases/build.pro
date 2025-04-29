@@ -44,4 +44,6 @@
 ##
 ##
 
-RunTest  Tb_BasicReadWrite.vhd
+# RunTest  Tb_BasicReadWrite.vhd
+# RunTest  Tb_RandomReadWrite.vhd
+RunTest Tb_BurstNoIncReadWrite.vhd
