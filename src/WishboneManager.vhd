@@ -9,7 +9,7 @@
 --
 --
 --  Description:
---      Wishbone Manager Model
+--      Wishbone Manager VC
 --
 --
 --  Developed by:
@@ -81,11 +81,6 @@ port (
   -- Testbench Transaction Interface
   TransRec      : inout AddressBusRecType 
 ) ;
-
-  -- Derive AXI interface properties from the AxiBus
-  constant ADDR_WIDTH      : integer := WishboneBus.Adr'length ;
-  constant DATA_WIDTH      : integer := WishboneBus.iDat'length ;
-  
   -- Derive ModelInstance label from path_name
   constant MODEL_INSTANCE_NAME : string :=
     -- use MODEL_ID_NAME Generic if set, otherwise use instance label (preferred if set as entityname_1)
@@ -93,26 +88,38 @@ port (
 
   constant MODEL_NAME : string := "WishboneManager" ;
   
+  -- Derive AXI interface properties from the AxiBus
+  constant ADDR_WIDTH      : integer := WishboneBus.Adr'length ;
+  constant DATA_WIDTH      : integer := WishboneBus.iDat'length ;
+  constant DATA_NUM_BYTES  : integer := DATA_WIDTH / 8 ;
+  constant SEL_WIDTH       : integer := WishboneBus.Sel'length ;
+  constant BYTE_ADDR_WIDTH : integer := integer(ceil(log2(real(DATA_NUM_BYTES)))) ;
+  constant BYTE_ADDR_MASK  : std_logic_vector(ADDR_WIDTH-1 downto 0) := (ADDR_WIDTH-1 downto BYTE_ADDR_WIDTH => '0') & ( BYTE_ADDR_WIDTH downto 1 => '1') ; 
+  subtype  ByteAddrRange is natural range BYTE_ADDR_WIDTH-1 downto 0 ;
+  alias    WB    is WishboneBus ;
+
 end entity WishboneManager ;
 architecture VerificationComponent of WishboneManager is
-  -- Configuration Items
-  signal UseCoverageDelays : boolean := FALSE ; 
-  signal StaticDelayCycles : integer := 0 ; 
-  signal BurstCti          : std_logic_vector(2 downto 0) := WB_CTI_NOINC ;
-  signal Lock              : std_logic := '0' ; 
-  signal DelayCovID : DelayCoverageIDType ;
-  constant DEFAULT_BURST_MODE : AddressBusFifoBurstModeType := ADDRESS_BUS_BURST_WORD_MODE ;
-  signal   BurstFifoMode      : AddressBusFifoBurstModeType := DEFAULT_BURST_MODE ;
-  signal   BurstFifoByteMode  : boolean := (DEFAULT_BURST_MODE = ADDRESS_BUS_BURST_BYTE_MODE) ; 
-  signal   PipeMode  : boolean := WISHBONE_PIPELINED ; 
 
-  signal ModelID, ProtocolID, DataCheckID, BusFailedID : AlertLogIDType ;
-
-  constant DATA_BYTE_WIDTH : integer := DATA_WIDTH / 8 ;
-  constant BYTE_ADDR_WIDTH : integer := integer(ceil(log2(real(DATA_BYTE_WIDTH)))) ;
-  constant SEL_WIDTH       : integer := DATA_WIDTH/8 ;
-  constant BYTE_ADDR_MASK  : std_logic_vector(ADDR_WIDTH-1 downto 0) := (ADDR_WIDTH-1 downto BYTE_ADDR_WIDTH => '0') & ( BYTE_ADDR_WIDTH downto 1 => '1') ; 
+  -- Items Handled by Directives
+  signal ModelID, ReadID, WriteID  : AlertLogIDType ;
+  signal UseCoverageDelays     : boolean := FALSE ; 
+  signal ArrDelayCovID         : DelayCoverageIDArrayType(1 to 1) ;
+  alias  DelayCovID            is ArrDelayCovID(1) ;
+  constant DEFAULT_BURST_MODE  : AddressBusFifoBurstModeType := ADDRESS_BUS_BURST_WORD_MODE ;
+  signal BurstFifoMode         : AddressBusFifoBurstModeType := DEFAULT_BURST_MODE ;
+  signal TransactionDone       : boolean := TRUE ; 
+  signal WriteTransactionDone  : boolean := TRUE ; 
+  signal ReadTransactionDone   : boolean := TRUE ; 
+  signal WriteTransactionCount : integer := 0 ; 
+  signal ReadTransactionCount  : integer := 0 ;  
   
+  -- Configuration Items
+  signal StaticDelayCycles : integer := 0 ; 
+  signal BurstCti          : std_logic_vector(2 downto 0) := WB_CTI_INC ;
+  signal Lock              : std_logic := '0' ; 
+  signal PipeMode          : boolean := WISHBONE_PIPELINED ; 
+
   signal Params : ModelParametersIDType ;
 
   -- Internal Resources
@@ -121,7 +128,7 @@ architecture VerificationComponent of WishboneManager is
   signal ReadDataFifo                : osvvm.ScoreboardPkg_slv.ScoreboardIDType ;
   signal EndTransactionFifo          : osvvm.ScoreboardPkg_slv.ScoreboardIDType ;
 
-   signal Burst   : std_logic := '0' ;
+  signal Burst   : std_logic := '0' ;
 
   signal StartRequestCount, StartDoneCount  : integer := 0 ;
   signal ReadDataExpectCount,  ReadDataReceiveCount     : integer := 0 ;
@@ -147,9 +154,8 @@ begin
     -- Alerts
     ID                      := NewID(MODEL_INSTANCE_NAME) ;
     ModelID                 <= ID ;
-    ProtocolID              <= NewID("Protocol Error", ID ) ;
-    DataCheckID             <= NewID("Data Check", ID ) ;
-    BusFailedID             <= NewID("No response", ID ) ;
+    ReadID                  <= NewID("Read", ID ) ;
+    WriteID                 <= NewID("Write", ID, ReportMode => DISABLED ) ;
     
 --    vParams                 := NewID("Wishbone Parameters", to_integer(OPTIONS_MARKER), ID) ; 
 --    InitAxiOptions(vParams) ;
@@ -174,10 +180,8 @@ begin
     variable ByteCount          : integer ;
     variable TransfersInBurst   : integer ;
 
-    variable Local  : WishboneBus'subtype ; 
-    alias LocalAdr : std_logic_vector(Local.Adr'length-1 downto 0) is Local.Adr ; 
-    alias LocalByteAdr is LocalAdr(BYTE_ADDR_WIDTH -1 downto 0) ;
-
+    variable Local      : WishboneBus'subtype ; 
+    alias    aLocalAdr  : std_logic_vector(Local.Adr'length-1 downto 0) is Local.Adr ; 
     variable ByteAddr   : integer ;
 
     variable BytesToSend     : integer ;
@@ -201,73 +205,19 @@ begin
          Rdy      => TransRec.Rdy,
          Ack      => TransRec.Ack
       ) ;
+
+      -- Get Operation, Addr and Data from Record
       Operation := TransRec.Operation ;
+      aLocalAdr  := SafeResize(ModelID, TransRec.Address, aLocalAdr'length) ;
+      ByteAddr   := to_integer(aLocalAdr(ByteAddrRange)) ;
+      Local.oDat := SafeResize(ModelID, TransRec.DataToModel, Local.oDat'length) ;
 
       case Operation is
-        -- Execute Standard Directive Transactions
-        -- when WAIT_FOR_TRANSACTION =>
-
-        when WAIT_FOR_CLOCK =>
-          WaitForClock(Clk, TransRec.IntToModel) ;
-
-        when GET_ALERTLOG_ID =>
-          TransRec.IntFromModel <= integer(ModelID) ;
-          wait for 0 ns ; 
-
-        when GET_TRANSACTION_COUNT =>
-          TransRec.IntFromModel <= integer(TransRec.Rdy) ; 
-          wait for 0 ns ; 
-        
-        when SET_USE_RANDOM_DELAYS =>        
-          UseCoverageDelays      <= TransRec.BoolToModel ; 
-
-        when GET_USE_RANDOM_DELAYS =>
-          TransRec.BoolFromModel <= UseCoverageDelays ;
-
-        when SET_DELAYCOV_ID =>
-          DelayCovID <= GetDelayCoverage(TransRec.IntToModel) ;
-          UseCoverageDelays <= TRUE ; 
-
-        when GET_DELAYCOV_ID =>
-          TransRec.IntFromModel <= DelayCovID.ID  ;
-          UseCoverageDelays <= TRUE ; 
-
-        when SET_BURST_MODE =>                      
-          BurstFifoMode       <= TransRec.IntToModel ;
-          BurstFifoByteMode   <= (TransRec.IntToModel = ADDRESS_BUS_BURST_BYTE_MODE) ;
-          wait for 0 ns ; 
-          AlertIf(ModelID, not IsAddressBusBurstMode(BurstFifoMode), 
-            "Invalid Burst Mode " & to_string(BurstFifoMode), FAILURE) ;
-              
-        when GET_BURST_MODE =>                      
-          TransRec.IntFromModel <= BurstFifoMode ;
-
-        when WAIT_FOR_TRANSACTION =>
-          if StartRequestCount /= StartDoneCount then
-            -- Block until done.
-            wait until StartRequestCount = StartDoneCount ;
-          end if ; 
-
---       when GET_WRITE_TRANSACTION_COUNT =>
---         TransRec.IntFromModel <= 0 ; -- WriteStartDoneCount ;
---         wait for 0 ns ; 
---
---       when GET_READ_TRANSACTION_COUNT =>
---         TransRec.IntFromModel <= 0 ; -- ReadStartDoneCount ;
---         wait for 0 ns ; 
-
         -- Model Transaction Dispatch
         when WRITE_OP | ASYNC_WRITE =>
-          -- For All Write Operations - Write Address and Write Data
-          Local.Adr  := SafeResize(ModelID, TransRec.Address, Local.Adr'length) ;
- --         ByteAddr   := to_integer(Local.Adr and BYTE_ADDR_MASK) ;
-          ByteAddr   := to_integer(LocalByteAdr) ;
-
-          -- Single Transfer Write Data Handling
--- There should be a single CheckData - for Bytes and Width
-          CheckDataIsBytes(ModelID, TransRec.DataWidth, "Write: ", TransRec.Rdy) ;
-          CheckDataWidth  (ModelID, TransRec.DataWidth, ByteAddr, DATA_WIDTH, "Write: ", TransRec.Rdy) ;
-          Local.oDat  := AlignBytesToDataBus(SafeResize(ModelID, TransRec.DataToModel, Local.oDat'length), TransRec.DataWidth, ByteAddr) ;
+        -- Single Transfer Write Data Handling
+          CheckDataWidth (WriteID, TransRec, ByteAddr, DATA_WIDTH) ;
+          Local.oDat  := AlignBytesToDataBus(Local.oDat, TransRec.DataWidth, ByteAddr) ;
 
           Push(StartTransactionFifo, '1' & Local.Adr  & Local.oDat & Local.Lock & "000" & Local.Cyc) ;
           Increment(StartRequestCount) ;
@@ -281,30 +231,36 @@ begin
             wait until StartRequestCount = StartDoneCount ;
           end if ;
 
+          Log( WriteID,
+            "Address:  " & to_hxstring(Local.Adr) &
+            "  Data: "   & to_hxstring(Local.oDat),
+            INFO,
+            TransRec.StatusMsgOn
+          ) ;
 
-        -- Model Transaction Dispatch
         when WRITE_BURST | ASYNC_WRITE_BURST =>
-          Local.Adr   := SafeResize(ModelID, TransRec.Address, Local.Adr'length) ;
-          ByteAddr    := to_integer(Local.Adr and BYTE_ADDR_MASK) ;
-          
-          if BurstFifoByteMode then 
-            BytesToSend       := TransRec.DataWidth ;
-            TransfersInBurst  := 1 + CalculateBurstLen(BytesToSend, ByteAddr, DATA_BYTE_WIDTH) ;
-          else
-            TransfersInBurst  := TransRec.DataWidth ;
-          end if ; 
+          CalculateBurstLen(TransfersInBurst, BytesToSend, BurstFifoMode, TransRec.DataWidth, ByteAddr, DATA_NUM_BYTES) ;
+
+          PopWriteBurstData(TransRec.WriteBurstFifo, BurstFifoMode, Local.oDat, BytesToSend, ByteAddr) ;
+
+          Log( WriteID,
+            "Burst Address:  "         & to_hxstring(Local.Adr) &
+            "  Data: "                 & to_hxstring(Local.oDat) & 
+            "  Transfers in Burst: "   & to_string(TransfersInBurst),
+            INFO,
+            TransRec.StatusMsgOn
+          ) ;
 
           Local.Adr := (Local.Adr and not BYTE_ADDR_MASK) ; 
-          PopWriteBurstData(TransRec.WriteBurstFifo, BurstFifoMode, Local.oDat, BytesToSend, ByteAddr) ;
 
           for BurstLoop in TransfersInBurst downto 2 loop    
             Push(StartTransactionFifo, '1' & Local.Adr & Local.oDat & Local.Lock & BurstCti & '1') ;
             PopWriteBurstData(TransRec.WriteBurstFifo, BurstFifoMode, Local.oDat, BytesToSend, 0) ;
             if BurstCti = WB_CTI_INC then
-              Local.Adr := Local.Adr + DATA_BYTE_WIDTH ; 
+              Local.Adr := Local.Adr + DATA_NUM_BYTES ; 
             end if ; 
           end loop ; 
-            
+
           -- Special handle last push
           Push(StartTransactionFifo, '1' & Local.Adr & Local.oDat & Local.Lock & WB_CTI_END & '0') ;
 
@@ -323,8 +279,6 @@ begin
         when READ_OP | READ_CHECK | READ_ADDRESS | READ_DATA | READ_DATA_CHECK | ASYNC_READ_ADDRESS | ASYNC_READ_DATA | ASYNC_READ_DATA_CHECK =>
           if IsReadAddress(Operation) then
             -- Send Read Address to Read Address Handler and Read Data Handler
-            Local.Adr   := SafeResize(ModelID, TransRec.Address, Local.Adr'length) ;
-            ByteAddr    := to_integer(Local.Adr and BYTE_ADDR_MASK) ;
             Local.iDat  := AlignBytesToDataBus(to_slv(0, Local.iDat'length), TransRec.DataWidth, ByteAddr) ;
 
             Push(StartTransactionFifo, '0' & Local.Adr  & Local.iDat & Local.Lock & "000" & Local.Cyc) ;           
@@ -341,8 +295,8 @@ begin
             TransRec.BoolFromModel <= FALSE ;
             TransRec.DataFromModel <= (TransRec.DataFromModel'range => '0') ; 
           elsif IsReadData(Operation) then
-            Local.Adr  := Pop(ReadAddressTransactionFifo) ;
-            ByteAddr   := to_integer(Local.Adr and BYTE_ADDR_MASK) ;
+            aLocalAdr  := Pop(ReadAddressTransactionFifo) ;
+            ByteAddr   := to_integer(aLocalAdr(ByteAddrRange)) ;
 
             -- Wait for Data Ready
             if IsEmpty(ReadDataFifo) then
@@ -353,60 +307,46 @@ begin
             -- Get Read Data
             Local.iDat := Pop(ReadDataFifo) ;
             Local.iDat := AlignDataBusToBytes(Local.iDat, TransRec.DataWidth, ByteAddr) ;
-            TransRec.DataFromModel <= SafeResize(ModelID, Local.iDat, TransRec.DataFromModel'length) ;
-            CheckDataIsBytes(ModelID, TransRec.DataWidth, "Read: ", ReadDataExpectCount) ;
-            CheckDataWidth  (ModelID, TransRec.DataWidth, ByteAddr, DATA_WIDTH, "Read: ", ReadDataExpectCount) ;
+            TransRec.DataFromModel <= SafeResize(ReadID, Local.iDat, TransRec.DataFromModel'length) ;
+            CheckDataWidth (ReadID, TransRec, ByteAddr, DATA_WIDTH) ;
 
             -- Check or Log Read Data
-            if IsReadCheck(TransRec.Operation) then
-              ExpectedData := SafeResize(ModelID, TransRec.DataToModel, ExpectedData'length) ;
-              AffirmIfEqual( DataCheckID, Local.iDat, ExpectedData,
-                "Read Address:  " & to_hxstring(Local.Adr) &
+            if IsReadCheck(Operation) then
+              AffirmIfEqual( ReadID, Local.iDat, Local.oDat,
+                "Address:  " & to_hxstring(Local.Adr) &
                 "  Data: ",
-                TransRec.StatusMsgOn or IsLogEnabled(ModelID, INFO) ) ;
+                TransRec.StatusMsgOn or IsLogEnabled(ReadID, INFO) ) ;
             else
-              Log( ModelID,
-                "Read Address:  " & to_hxstring(Local.Adr) &
-                "  Data: " & to_hxstring(Local.iDat),
+              Log( ReadID,
+                "Address:  " & to_hxstring(Local.Adr) &
+                "  Data: "   & to_hxstring(Local.iDat),
                 INFO,
                 TransRec.StatusMsgOn
               ) ;
             end if ;
           end if ;
 
-          -- Transaction wait time
-          wait for 0 ns ;  wait for 0 ns ;
-
         when READ_BURST =>
           if IsReadAddress(Operation) then
-            -- Send Read Address to Read Address Handler and Read Data Handler
-            Local.Adr     := SafeResize(ModelID, TransRec.Address, Local.Adr'length) ;
-            ByteAddr  := to_integer(Local.Adr and BYTE_ADDR_MASK) ;
+            CalculateBurstLen(TransfersInBurst, BytesToSend, BurstFifoMode, TransRec.DataWidth, ByteAddr, DATA_NUM_BYTES) ;
 
-            -- Burst transfer, calculate burst length
-            if BurstFifoByteMode then 
-              TransfersInBurst := 1 + CalculateBurstLen(TransRec.DataWidth, ByteAddr, DATA_BYTE_WIDTH) ;
-            else 
-              TransfersInBurst := TransRec.DataWidth ; 
-            end if ;
+            Local.iDat := AlignBytesToDataBus(to_slv(0, Local.iDat'length), TransRec.DataWidth, ByteAddr) ;
 
-            Local.iDat      := AlignBytesToDataBus(to_slv(0, Local.iDat'length), TransRec.DataWidth, ByteAddr) ;
-
-            Local.Adr := (Local.Adr and not BYTE_ADDR_MASK) ; 
+            Local.Adr  := (Local.Adr and not BYTE_ADDR_MASK) ; 
             
             for BurstLoop in TransfersInBurst downto 2 loop    
               Push(StartTransactionFifo, '0' & Local.Adr & Local.iDat & Local.Lock & BurstCti  & '1') ;
               if BurstCti = WB_CTI_INC then
-                Local.Adr := Local.Adr + DATA_BYTE_WIDTH ; 
+                Local.Adr := Local.Adr + DATA_NUM_BYTES ; 
               end if ; 
             end loop ; 
             
             -- Special handle last push
-            Push(StartTransactionFifo, '0' & Local.Adr & Local.oDat & Local.Lock & WB_CTI_END & '0') ;
+            Push(StartTransactionFifo, '0' & Local.Adr & Local.iDat & Local.Lock & WB_CTI_END & '0') ;
             
             Push(ReadAddressTransactionFifo, Local.Adr);
             
-            StartRequestCount <= Increment(StartRequestCount, TransfersInBurst) ;
+            StartRequestCount   <= Increment(StartRequestCount, TransfersInBurst) ;
             ReadDataExpectCount <= Increment(ReadDataExpectCount, TransfersInBurst) ;
           end if ;
 
@@ -416,21 +356,26 @@ begin
             TransRec.BoolFromModel <= FALSE ;
           elsif IsReadData(Operation) then
             TransRec.BoolFromModel <= TRUE ;
-            Local.Adr := Pop(ReadAddressTransactionFifo) ;
-            ByteAddr := to_integer(Local.Adr and BYTE_ADDR_MASK) ;
+            aLocalAdr  := Pop(ReadAddressTransactionFifo) ;
+            ByteAddr   := to_integer(aLocalAdr(ByteAddrRange)) ;
 
-            if BurstFifoByteMode then 
-              BytesToReceive    := TransRec.DataWidth ;
-              TransfersInBurst  := 1 + CalculateBurstLen(BytesToReceive, ByteAddr, DATA_BYTE_WIDTH) ;
-            else
-              TransfersInBurst  := TransRec.DataWidth ;
-            end if ; 
+            CalculateBurstLen(TransfersInBurst, BytesToSend, BurstFifoMode, TransRec.DataWidth, ByteAddr, DATA_NUM_BYTES) ;
 
             for BurstLoop in 1 to TransfersInBurst loop
               if IsEmpty(ReadDataFifo) then
                 WaitForToggle(ReadDataReceiveCount) ;
               end if ;
               Local.iDat := Pop(ReadDataFifo) ;
+
+              if BurstLoop = 1 then 
+                Log( ReadID,
+                  "Burst Address:  "         & to_hxstring(aLocalAdr) &
+                  "  Data: "                 & to_hxstring(Local.iDat) & 
+                  "  Transfers in Burst: "   & to_string(TransfersInBurst),
+                  INFO,
+                  TransRec.StatusMsgOn
+                ) ; 
+              end if ; 
               
               PushReadBurstData(TransRec.ReadBurstFifo, BurstFifoMode, Local.iDat, BytesToReceive, ByteAddr) ;
               ByteAddr := 0 ;
@@ -458,25 +403,43 @@ begin
 
         -- The End -- Done
         when others =>
-          -- Signal multiple Driver Detect or not implemented transactions.
-          Alert(ModelID, ClassifyUnimplementedOperation(TransRec), FAILURE) ;
+          DoDirectiveTransactions (
+            TransRec              => TransRec             ,
+            Clk                   => Clk                  ,
+            ModelID               => ModelID              ,
+            UseCoverageDelays     => UseCoverageDelays    ,
+            DelayCovID            => ArrDelayCovID        ,
+            BurstFifoMode         => BurstFifoMode        ,
+            TransactionDone       => TransactionDone      ,
+            WriteTransactionDone  => WriteTransactionDone ,
+            ReadTransactionDone   => ReadTransactionDone  ,
+            WriteTransactionCount => WriteTransactionCount,
+            ReadTransactionCount  => ReadTransactionCount
+          ) ;
 
       end case ;
     end loop DispatchLoop ;
   end process TransactionDispatcher ;
-  
+
+  ------------------------------------------------------------
+  -- Support for Directive Transactions
+  ------------------------------------------------------------
+  TransactionDone       <= StartRequestCount = StartDoneCount ; 
+--  WriteTransactionDone  <= 
+  ReadTransactionDone   <= ReadDataReceiveCount = ReadDataExpectCount ; 
+--   WriteTransactionCount <= WriteTransactionCount + 1 ; 
+  ReadTransactionCount  <= ReadDataReceiveCount ;
+
   iAck <= WishboneBus.Ack or WishboneBus.Rty or WishboneBus.Err  ;
   
   CycleDone <=
     not WishboneBus.Stall when PipeMode else iAck ; 
     
-
   ------------------------------------------------------------
   --  StartTransactionHandler
   --    Execute Write Address Transactions
   ------------------------------------------------------------
   StartTransactionHandler : process
-    alias    WB    is WishboneBus ;
     variable Local : WishboneBus'subtype ;
     variable DelayCycles : integer ; 
     variable PreviousWe : std_logic ; 
@@ -541,18 +504,18 @@ begin
       PreviousWe := Local.We ; 
       
       if (Local.We = '1') then 
-        Log(ModelID,
-          "Write Address: " & to_hxstring(Local.Adr) &
-          "  Data: " & to_hxstring(Local.oDat) &
-          "  Operation# " & to_string(StartDoneCount + 1),
-          INFO
+        WriteTransactionCount <= WriteTransactionCount + 1 ;
+        Log(WriteID,
+          "Address: "      & to_hxstring(Local.Adr) &
+          "  Data: "       & to_hxstring(Local.oDat) &
+          "  Operation # " & to_string(StartDoneCount + 1),
+          DEBUG
         ) ;
       else
-        Log(ModelID,
-          "Read Address:  " & to_hxstring(Local.Adr) &
---          "  Data: " &  to_hxstring(Local.Adr) &
-          "  Operation# " & to_string(StartDoneCount + 1),
-          INFO
+        Log(ReadID,
+          "Address:  "     & to_hxstring(Local.Adr) &
+          "  Operation # " & to_string(StartDoneCount + 1),
+          DEBUG
         ) ;
       end if ; 
 

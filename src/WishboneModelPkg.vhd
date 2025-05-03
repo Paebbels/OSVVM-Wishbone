@@ -64,29 +64,31 @@ package WishboneModelPkg is
   ) return integer ; 
 
   ------------------------------------------------------------
-  function CalculateByteAddress (
-  -- Fetch the address and data the slave sees for a write 
-  ------------------------------------------------------------
-    constant Address         : In  std_logic_vector ;
-    constant AddrBitsPerWord : In  integer 
-  ) return integer ; 
-
-  ------------------------------------------------------------
   function CalculateBurstLen(
   ------------------------------------------------------------
-    constant NumBytes       : In  integer ; 
-    constant ByteAddress    : In  integer ; 
-    constant ByteWidth      : In  integer 
+    constant NumBytes           : In  integer ; 
+    constant ByteAddress        : In  integer ; 
+    constant BytesInInterface   : In  integer 
   ) return integer ;
 
---!!  -- Keep for now
---!!  ------------------------------------------------------------
---!!  function CalculateWriteStrobe (
---!!  ------------------------------------------------------------
---!!    constant ByteAddr      : In  integer ;
---!!    constant NumberOfBytes : In  integer ; 
---!!    constant MaxBytes      : In  integer 
---!!  ) return std_logic_vector ; 
+  ------------------------------------------------------------
+  procedure CalculateBurstLen (
+  ------------------------------------------------------------
+    variable TransfersInBurst   : Out  integer ; 
+    variable BytesToSend        : Out  integer ; 
+    constant BurstFifoMode      : In   integer ;
+    constant ItemsInFifo        : In   integer ;
+    constant ByteAddr           : In   integer ; 
+    constant BytesInInterface   : In   integer
+  ) ;
+
+    ------------------------------------------------------------
+  function CalculateWriteStrobe (
+  ------------------------------------------------------------
+    constant ByteAddr         : In  integer ;
+    constant BytesInTransfer  : In  integer ; 
+    constant BytesInInterface : In  integer 
+  ) return std_logic_vector ; 
 
   ------------------------------------------------------------
   function CalculateWriteStrobe (
@@ -132,14 +134,12 @@ package WishboneModelPkg is
   
   ------------------------------------------------------------
   procedure CheckDataWidth (
-  -- Check AXI Write Data Width - BYTE and < WordWidth adjusted for ByteAddr 
-  ------------------------------------------------------------
-    constant ModelID         : In    AlertLogIDType ; 
-    constant DataWidth       : In    integer ; 
+    -- Check Data Width - BYTE and < WordWidth adjusted for ByteAddr 
+    ------------------------------------------------------------
+    constant AlertLogID      : In    AlertLogIDType ;
+    constant TransRec        : In    AddressBusRecType ; 
     constant ByteAddr        : In    integer ;
-    constant MaxDataBits     : In    integer ;
-    constant MessagePrefix   : In    string  := "" ; 
-    constant TransferNumber  : In    integer := -1
+    constant DataWidth       : In    integer 
   ) ;
 
   ------------------------------------------------------------
@@ -187,52 +187,60 @@ package body WishboneModelPkg is
   end function CountDontCare ; 
 
   ------------------------------------------------------------
-  function CalculateByteAddress (
+  function CalculateBurstLen (
   ------------------------------------------------------------
-    constant Address         : In  std_logic_vector ;
-    constant AddrBitsPerWord : In  integer 
-  ) return integer is
-    alias    aAddr         : std_logic_vector(Address'length downto 1) is Address ; 
-  begin 
-    return to_integer(aAddr(AddrBitsPerWord downto 1) ) ;
-  end function CalculateByteAddress ; 
-  
-  ------------------------------------------------------------
-  function CalculateBurstLen(
-  ------------------------------------------------------------
-    constant NumBytes       : In  integer ; 
-    constant ByteAddress    : In  integer ; 
-    constant ByteWidth      : In  integer 
+    constant NumBytes           : In  integer ; 
+    constant ByteAddress        : In  integer ; 
+    constant BytesInInterface   : In  integer 
   ) return integer is
     variable BytesInFirstTransfer : integer ; 
     variable BytesAfterFirstTransfer : integer ; 
   begin
-    BytesInFirstTransfer := ByteWidth - ByteAddress ; 
+    BytesInFirstTransfer := BytesInInterface - ByteAddress ; 
     if BytesInFirsttransfer  > NumBytes then
       return 0 ; -- only one word in transfer
     else
       BytesAfterFirstTransfer := NumBytes - BytesInFirstTransfer ;
-      return 0 + integer(ceil(real(BytesAfterFirstTransfer)/real(ByteWidth))) ; 
+      return 0 + integer(ceil(real(BytesAfterFirstTransfer)/real(BytesInInterface))) ; 
     end if ; 
   end function CalculateBurstLen ; 
-  
---!! -- Keep for now.   Capability is in AlignBytesToDataBus as it fills RHS with U
---!!  ------------------------------------------------------------
---!!  function CalculateWriteStrobe (
---!!  ------------------------------------------------------------
---!!    constant ByteAddr      : In  integer ;
---!!    constant NumberOfBytes : In  integer ; 
---!!    constant MaxBytes      : In  integer 
---!!  ) return std_logic_vector is
---!!    variable WriteStrobe   : std_logic_vector(MaxBytes downto 1) := (others => '0') ; 
---!!  begin
---!!    -- Calculate Initial WriteStrobe based on number of bytes
---!!    WriteStrobe(NumberOfBytes downto 1) := (others => '1') ;
---!!        
---!!    -- Adjust WriteStrobe for Address
---!!    -- replace by sll? WriteStrobe sll ByteAddr 
---!!    return WriteStrobe(MaxBytes - ByteAddr downto 1) & (ByteAddr downto 1 => '0') ;
---!!  end function CalculateWriteStrobe ; 
+
+  ------------------------------------------------------------
+  procedure CalculateBurstLen (
+  ------------------------------------------------------------
+    variable TransfersInBurst   : Out  integer ; 
+    variable BytesToSend        : Out  integer ; 
+    constant BurstFifoMode      : In   integer ;
+    constant ItemsInFifo        : In   integer ;
+    constant ByteAddr           : In   integer ; 
+    constant BytesInInterface   : In   integer
+  ) is
+  begin
+    if BurstFifoMode = ADDRESS_BUS_BURST_BYTE_MODE then 
+      BytesToSend       := ItemsInFifo ;
+      TransfersInBurst  := 1 + CalculateBurstLen(BytesToSend, ByteAddr, BytesInInterface) ;
+    else
+      BytesToSend       := -1 ; 
+      TransfersInBurst  := ItemsInFifo ;
+    end if ; 
+  end procedure CalculateBurstLen ; 
+
+  ------------------------------------------------------------
+  function CalculateWriteStrobe (
+  ------------------------------------------------------------
+    constant ByteAddr         : In  integer ;
+    constant BytesInTransfer  : In  integer ; 
+    constant BytesInInterface : In  integer 
+  ) return std_logic_vector is
+    variable WriteStrobe   : std_logic_vector(BytesInInterface downto 1) := (others => '0') ; 
+  begin
+    -- Calculate Initial WriteStrobe based on number of bytes
+    WriteStrobe(BytesInTransfer downto 1) := (others => '1') ;
+        
+    -- Adjust WriteStrobe for Address
+    -- replace by sll? WriteStrobe sll ByteAddr 
+    return WriteStrobe(BytesInInterface - ByteAddr downto 1) & (ByteAddr downto 1 => '0') ;
+  end function CalculateWriteStrobe ; 
   
   ------------------------------------------------------------
   function CalculateWriteStrobe (
@@ -340,27 +348,33 @@ package body WishboneModelPkg is
   
   ------------------------------------------------------------
   procedure CheckDataWidth (
-  -- Check AXI Write Data Width - BYTE and < WordWidth adjusted for ByteAddr 
+  -- Check Data Width - BYTE and < WordWidth adjusted for ByteAddr 
   ------------------------------------------------------------
-    constant ModelID         : In    AlertLogIDType ; 
-    constant DataWidth       : In    integer ; 
+    constant AlertLogID      : In    AlertLogIDType ;
+    constant TransRec        : In    AddressBusRecType ; 
     constant ByteAddr        : In    integer ;
-    constant MaxDataBits     : In    integer ;
-    constant MessagePrefix   : In    string  := "" ; 
-    constant TransferNumber  : In    integer := -1
+    constant DataWidth       : In    integer 
   ) is
+    alias RecDataWidth is TransRec.DataWidth ; 
+    alias RecOperationNum is TransRec.Rdy ; 
   begin
-    if DataWidth + ByteAddr*8 > MaxDataBits and DataWidth /= MaxDataBits then
-        AlertIf(ModelID, DataWidth + ByteAddr*8 > MaxDataBits, 
-          MessagePrefix  &
-          "Data length too large." & 
-          "  ByteAddr: " & to_string(ByteAddr) & " * 8" & 
-          "  + DataWidth: " & to_string(DataWidth) & 
-          "  > MaxDataBits: " & to_string(MaxDataBits) & 
-          "  TransferNumber: " & to_string(TransferNumber),
-          FAILURE) ;
-      end if ; 
-    end procedure CheckDataWidth ; 
+    if DataWidth mod 8 /= 0 then 
+      Alert(AlertLogID, 
+      "Transaction Data not on a byte boundary." & 
+      "  Data Width: " & to_string(RecDataWidth) & 
+      "  Operation # " & to_string(RecOperationNum), 
+      FAILURE) ;
+    end if ;
+    if RecDataWidth + ByteAddr*8 > DataWidth and RecDataWidth /= DataWidth then
+      Alert(AlertLogID, 
+        "Transaction Data Width too large." & 
+        "  ByteAddr: " & to_string(ByteAddr) & " * 8" & 
+        "  + Transaction Data Width: " & to_string(RecDataWidth) & 
+        "  > Interface Data Width: " & to_string(DataWidth) & 
+        "  Operation # " & to_string(RecOperationNum),
+        FAILURE) ;
+    end if ; 
+  end procedure CheckDataWidth ; 
 
   ------------------------------------------------------------
   -- Local

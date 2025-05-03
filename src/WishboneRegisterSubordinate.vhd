@@ -82,8 +82,9 @@ entity WishboneRegisterSubordinate is
 
   -- Derive ModelInstance label from path_name
   constant MODEL_INSTANCE_NAME : string :=
-  -- use MODEL_ID_NAME Generic if set, otherwise use instance label (preferred if set as entityname_1)
+      -- use MODEL_ID_NAME Generic if set, otherwise use instance label (preferred if set as entityname_1)
       IfElse(MODEL_ID_NAME /= "", MODEL_ID_NAME, to_lower(PathTail(WishboneRegisterSubordinate'PATH_NAME))) ;
+
   constant MODEL_NAME : string := "WishboneRegisterSubordinate" ;
 
   constant LOCAL_MEMORY_NAME : string := 
@@ -99,9 +100,9 @@ entity WishboneRegisterSubordinate is
 
   constant DATA_WIDTH            : integer := WishboneBus.oDat'length ;  
   alias    NormalizediDat        : std_logic_vector(DATA_WIDTH-1 downto 0) is WishboneBus.iDat ; 
-  constant DATA_BYTES            : integer := DATA_WIDTH / 8 ;  
+  constant DATA_NUM_BYTES       : integer := DATA_WIDTH / 8 ;  
   constant SEL_WIDTH             : integer := WishboneBus.Sel'length ;
-  constant BYTE_ADDR_WIDTH       : integer := integer(ceil(log2(real(DATA_BYTES)))) ;
+  constant BYTE_ADDR_WIDTH       : integer := integer(ceil(log2(real(DATA_NUM_BYTES)))) ;
 
   constant WORD_ADDR_WIDTH       : integer := ADDR_WIDTH - BYTE_ADDR_WIDTH ;
   subtype  WordAddrRange is natural range WORD_ADDR_WIDTH-1 downto BYTE_ADDR_WIDTH ;
@@ -116,19 +117,31 @@ entity WishboneRegisterSubordinate is
 end WishboneRegisterSubordinate;
 
 architecture VerificationComponent of WishboneRegisterSubordinate is
-  signal Enable   : std_logic ;
-  signal WrAck    : std_logic ;
-  signal RdAck    : std_logic ;
-
+  -- Items Handled by Directives
+  signal ModelID               : AlertLogIDType ;
+  signal UseCoverageDelays     : boolean := FALSE ; 
+  signal ArrDelayCovID         : DelayCoverageIDArrayType(1 to 1) ;
+  alias  DelayCovID            is ArrDelayCovID(1) ;
+  constant DEFAULT_BURST_MODE  : AddressBusFifoBurstModeType := ADDRESS_BUS_BURST_WORD_MODE ;
+  signal BurstFifoMode         : AddressBusFifoBurstModeType := DEFAULT_BURST_MODE ;
+  signal TransactionDone       : boolean := TRUE ; 
+  signal WriteTransactionDone  : boolean := TRUE ; 
+  signal ReadTransactionDone   : boolean := TRUE ; 
+  signal WriteTransactionCount : integer := 0 ; 
+  signal ReadTransactionCount  : integer := 0 ;  
+  
+  -- Configuration Items
   signal DelayValueSetting : integer := 0 ; 
-  signal UseCoverageDelays : boolean := FALSE ; 
-  signal DelayCovID : DelayCoverageIDType ; 
-  signal ModelID    : AlertLogIDType ;
 
   -- Internal Resources
   signal Params     : ModelParametersIDType ;
   signal MemoryID   : MemoryIDType ; 
   signal DmaFifo    : osvvm.ScoreboardPkg_slv.ScoreboardIDType ;
+
+  -- Functional signals
+  signal Enable   : std_logic ;
+  signal WrAck    : std_logic ;
+  signal RdAck    : std_logic ;
 
 begin
   ------------------------------------------------------------
@@ -207,32 +220,6 @@ begin
       ) ;
 
       case TransRec.Operation is
-        -- Execute Standard Directive Transactions
-        -- when WAIT_FOR_TRANSACTION =>
-
-        when WAIT_FOR_CLOCK =>
-          WaitForClock(Clk, TransRec.IntToModel) ;
-
-        when GET_ALERTLOG_ID =>
-          TransRec.IntFromModel <= integer(ModelID) ;
-
-        when GET_TRANSACTION_COUNT =>
-          TransRec.IntFromModel <= integer(TransRec.Rdy) ; 
-          
-        when SET_USE_RANDOM_DELAYS =>        
-          UseCoverageDelays      <= TransRec.BoolToModel ; 
-
-        when GET_USE_RANDOM_DELAYS =>
-          TransRec.BoolFromModel <= UseCoverageDelays ;
-
-        when SET_DELAYCOV_ID =>
-          DelayCovID <= GetDelayCoverage(TransRec.IntToModel) ;
-          UseCoverageDelays <= TRUE ; 
-
-        when GET_DELAYCOV_ID =>
-          TransRec.IntFromModel <= DelayCovID.ID  ;
-          UseCoverageDelays <= TRUE ; 
-
         -- Model Configuration Options
         when SET_MODEL_OPTIONS =>
 --           WishboneOption := WishboneOptionsType'val(TransRec.Options) ;
@@ -252,8 +239,21 @@ begin
 
         -- The End -- Done
         when others =>
-          -- Signal multiple Driver Detect or not implemented transactions.
-          Alert(ModelID, ClassifyUnimplementedOperation(TransRec), FAILURE) ;
+          DoDirectiveTransactions (
+            TransRec              => TransRec             ,
+            Clk                   => Clk                  ,
+            ModelID               => ModelID              ,
+            UseCoverageDelays     => UseCoverageDelays    ,
+            DelayCovID            => ArrDelayCovID        ,
+            -- Below currently unused
+            BurstFifoMode         => BurstFifoMode        ,
+            TransactionDone       => TransactionDone      ,
+            WriteTransactionDone  => WriteTransactionDone ,
+            ReadTransactionDone   => ReadTransactionDone  ,
+            WriteTransactionCount => WriteTransactionCount,
+            ReadTransactionCount  => ReadTransactionCount
+          ) ;
+
 
       end case ;
     end loop DispatchLoop ;
