@@ -17,13 +17,12 @@
 #
 #  Revision History:
 #    Date      Version    Description
-#     1/2019   2019.01    Compile Script for OSVVM
-#     1/2020   2020.01    Updated Licenses to Apache
+#    04/2025   2025       Initial revision
 #
 #
 #  This file is part of OSVVM.
 #  
-#  Copyright (c) 2019 - 2020 by SynthWorks Design Inc.  
+#  Copyright (c) 2025 by SynthWorks Design Inc.  
 #  
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
