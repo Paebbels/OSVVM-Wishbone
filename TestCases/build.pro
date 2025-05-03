@@ -38,12 +38,10 @@
 #  
 
 ##
-## runs in conjunction with either 
-## Testbench/Testbench.pro or TestbenchVTI/TestbenchVTI.pro
+## runs in conjunction with Wishbone/RunAllTests.pro 
 ## Continuing with library set previously by the above
 ##
-##
 
-# RunTest  Tb_BasicReadWrite.vhd
-# RunTest  Tb_RandomReadWrite.vhd
-RunTest Tb_BurstNoIncReadWrite.vhd
+RunTest  Tb_BasicReadWrite.vhd
+RunTest  Tb_RandomReadWrite.vhd
+RunTest  Tb_BurstNoIncReadWrite.vhd
