@@ -99,7 +99,8 @@ entity WishboneRegisterSubordinate is
   constant NORM_DMA_READ_ADDR    : std_logic_vector := resize(DMA_READ_ADDR,  ADDR_WIDTH) ;
 
   constant DATA_WIDTH            : integer := WishboneBus.oDat'length ;  
-  alias    NormalizediDat        : std_logic_vector(DATA_WIDTH-1 downto 0) is WishboneBus.iDat ; 
+  subtype  WishboneDataBusType   is std_logic_vector(DATA_WIDTH-1 downto 0) ;
+  alias    NormalizediDat        : WishboneDataBusType is WishboneBus.iDat ; 
   constant DATA_NUM_BYTES       : integer := DATA_WIDTH / 8 ;  
   constant SEL_WIDTH             : integer := WishboneBus.Sel'length ;
   constant BYTE_ADDR_WIDTH       : integer := integer(ceil(log2(real(DATA_NUM_BYTES)))) ;
@@ -199,7 +200,6 @@ begin
     alias LocalAdr  : std_logic_vector(Local.Adr'length-1 downto 0) is Local.Adr ; 
     alias LocalByteAdr is LocalAdr(BYTE_ADDR_WIDTH -1 downto 0) ;
 
-    variable ExpectedData    : std_logic_vector(WishboneBus.iDat'range) ;
   begin
     Local := InitWishboneRec (Local, '0') ;
     wait for 0 ns ; -- Allow ModelID to become valid
@@ -274,7 +274,8 @@ begin
   WriteProc : process 
     variable Offset : integer ; 
     variable DelayCycles : integer ; 
-    variable WData : WishboneBus.iDat'Subtype ; 
+    variable WData : WishboneDataBusType ; 
+--    variable WData : WishboneBus.iDat'Subtype ; -- breaks ActiveHDL
   begin
     WrAck <= '0' ; 
     WriteLoop : loop 
@@ -318,8 +319,9 @@ begin
   ------------------------------------------------------------
   ReadProc : process 
     variable DelayCycles : integer ; 
-    variable RData : WishboneBus.oDat'Subtype ; 
-  begin
+    variable RData : WishboneDataBusType ; 
+--    variable RData : WishboneBus.oDat'Subtype ; -- breaks ActiveHDL
+begin
     RdAck <= '0' ; 
     ReadLoop : loop 
       wait until rising_edge(Clk) and Enable = '1' and WishboneBus.Stb = '1' and WishboneBus.We = '0' ;
