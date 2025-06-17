@@ -98,6 +98,16 @@ port (
   subtype  ByteAddrRange is natural range BYTE_ADDR_WIDTH-1 downto 0 ;
   alias    WB    is WishboneBus ;
 
+  -- temporary.   Will move to package
+  function to_integer_null_is0 (A : std_logic_vector) return integer is
+  begin
+    if A'length = 0 then 
+      return 0 ; 
+    else
+      return to_integer(A) ;
+    end if ; 
+  end function to_integer_null_is0 ;
+
 end entity WishboneManager ;
 architecture VerificationComponent of WishboneManager is
 
@@ -209,7 +219,7 @@ begin
       -- Get Operation, Addr and Data from Record
       Operation := TransRec.Operation ;
       aLocalAdr  := SafeResize(ModelID, TransRec.Address, aLocalAdr'length) ;
-      ByteAddr   := to_integer(aLocalAdr(ByteAddrRange)) ;
+      ByteAddr   := to_integer_null_is0(aLocalAdr(ByteAddrRange)) ;
       Local.oDat := SafeResize(ModelID, TransRec.DataToModel, Local.oDat'length) ;
 
       case Operation is
@@ -296,7 +306,7 @@ begin
             TransRec.DataFromModel <= (TransRec.DataFromModel'range => '0') ; 
           elsif IsReadData(Operation) then
             aLocalAdr  := Pop(ReadAddressTransactionFifo) ;
-            ByteAddr   := to_integer(aLocalAdr(ByteAddrRange)) ;
+            ByteAddr   := to_integer_null_is0(aLocalAdr(ByteAddrRange)) ;
 
             -- Wait for Data Ready
             if IsEmpty(ReadDataFifo) then
@@ -357,7 +367,7 @@ begin
           elsif IsReadData(Operation) then
             TransRec.BoolFromModel <= TRUE ;
             aLocalAdr  := Pop(ReadAddressTransactionFifo) ;
-            ByteAddr   := to_integer(aLocalAdr(ByteAddrRange)) ;
+            ByteAddr   := to_integer_null_is0(aLocalAdr(ByteAddrRange)) ;
 
             CalculateBurstLen(TransfersInBurst, BytesToSend, BurstFifoMode, TransRec.DataWidth, ByteAddr, DATA_NUM_BYTES) ;
 

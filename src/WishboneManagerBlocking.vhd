@@ -215,7 +215,7 @@ begin
       -- Get Operation, Addr and Data from Record
       Operation := TransRec.Operation ;
       aLocalAdr  := SafeResize(ModelID, TransRec.Address, aLocalAdr'length) ;
-      ByteAddr   := to_integer(aLocalAdr(ByteAddrRange)) ;
+      ByteAddr   := 0 when BYTE_ADDR_WIDTH = 0 else to_integer(aLocalAdr(ByteAddrRange)) ;
       Local.oDat := SafeResize(ModelID, TransRec.DataToModel, Local.oDat'length) ;
 
       case Operation is
